@@ -1,66 +1,309 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Alexa+ MCP</title>
 <style>
-body{font:15px system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;background:#f2f6fa;color:#12202e}
-#chat{height:260px;overflow:auto;background:#fff;border:1px solid #cfd9e4;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}
-.m{padding:6px 10px;border-radius:10px;background:#e9f1f8;max-width:85%}.u{align-self:flex-end;background:#0099d8;color:#fff}
-form{display:flex;gap:6px;margin:8px 0}input{flex:1;padding:9px;border:1px solid #cfd9e4;border-radius:8px}button{padding:9px 14px;border:0;border-radius:8px;background:#0099d8;color:#fff}
-pre{background:#0c1722;color:#aee6ff;padding:10px;border-radius:8px;overflow:auto;max-height:240px;font-size:12px}
-</style></head><body>
-<h1>Alexa+ over MCP</h1>
-<div id="chat"></div>
-<form id="f"><input id="q" aria-label="Message" placeholder="Dim the bedroom light to 30 and set the heat to 24"><button>Send</button></form>
-<h3>Home state</h3><pre id="state"></pre>
-<h3>MCP traffic</h3><pre id="log"></pre>
+:root{--bg:#eef3f8;--card:#fff;--tx:#10202f;--mu:#5a6c80;--ac:#0099d8;--bd:#d3dde8;--cb:#0c1722;--ct:#aee6ff;--on:#ffc928;--bot:#e8f0f7}
+@media(prefers-color-scheme:dark){:root{--bg:#09111b;--card:#111d2b;--tx:#e6eef7;--mu:#8fa3b8;--bd:#223348;--cb:#050a10;--ct:#9fdcff;--bot:#1a2a3d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--bd)}
+.ring{width:32px;height:32px;border-radius:50%;border:5px solid var(--ac);box-shadow:0 0 12px var(--ac)}
+.ring.busy{animation:pulse 1s infinite alternate}
+@keyframes pulse{to{box-shadow:0 0 2px var(--ac)}}
+@media(prefers-reduced-motion:reduce){.ring.busy{animation:none}}
+h1{margin:0;font:600 20px/1.2 Georgia,serif}
+h2{margin:0 0 8px;font-size:14px}
+.sub{color:var(--mu);font-size:13px}
+.badge{margin-left:auto;font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid var(--bd);color:var(--mu)}
+.badge.ai{border-color:var(--ac);color:var(--ac)}
+main{display:grid;grid-template-columns:1fr 1fr;gap:14px;padding:14px 18px;max-width:1200px;margin:auto}
+@media(max-width:820px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:12px;min-width:0}
+#chat{height:300px;overflow:auto;display:flex;flex-direction:column;gap:6px}
+.m{padding:7px 11px;border-radius:12px;max-width:88%;background:var(--bot);white-space:pre-wrap}
+.m.u{align-self:flex-end;background:var(--ac);color:#fff}
+form{display:flex;gap:6px;margin-top:8px}
+input{flex:1;padding:9px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit}
+button{padding:8px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx);cursor:pointer;font:inherit}
+button.p{background:var(--ac);border-color:var(--ac);color:#fff}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chips button{font-size:13px;padding:4px 9px}
+.rooms{display:flex;gap:8px;flex-wrap:wrap}
+.room{flex:1;min-width:90px;text-align:center;padding:8px;border:1px solid var(--bd);border-radius:8px}
+.bulb{width:26px;height:26px;border-radius:50%;margin:0 auto 4px;background:var(--bd)}
+.info{margin:10px 0 0;display:grid;gap:4px}
+.info div{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--bd);padding-bottom:3px}
+.info span:first-child{color:var(--mu)}
+pre{background:var(--cb);color:var(--ct);padding:10px;border-radius:8px;overflow:auto;max-height:260px;font-size:12px;margin:0;white-space:pre-wrap;word-break:break-word}
+.wide{grid-column:1/-1}
+</style>
+</head>
+<body>
+<header>
+  <div class="ring" id="ring"></div>
+  <div><h1>Alexa+ over MCP</h1><div class="sub">Agent Skills + Streamable HTTP (MCP 2025-11-25)</div></div>
+  <span class="badge" id="mode">starting…</span>
+</header>
+<main>
+  <section class="card">
+    <h2>Talk to Alexa+</h2>
+    <div id="chat" aria-live="polite"></div>
+    <form id="f">
+      <input id="q" aria-label="Message Alexa+" placeholder="Dim the bedroom light to 30 and set the heat to 24" autocomplete="off">
+      <button class="p">Send</button>
+    </form>
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <section class="card">
+    <h2>Home</h2>
+    <div class="rooms" id="rooms"></div>
+    <div class="info">
+      <div><span>Thermostat</span><span id="temp">-</span></div>
+      <div><span>Shopping list</span><span id="list">-</span></div>
+      <div><span>Timers</span><span id="timers">-</span></div>
+      <div><span>Now playing</span><span id="now">-</span></div>
+    </div>
+  </section>
+
+  <section class="card wide">
+    <h2>MCP traffic</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
 <script>
-const PV = '2025-11-25'; let sid, n = 0;
+const PV = '2025-11-25';
+let sid = null, n = 0, state = null, aiAvailable = true;
 const $ = (s) => document.querySelector(s);
-const trace = (t) => { $('#log').textContent = t + '\n' + $('#log').textContent; };
-async function rpc(method, params, notify) {
-  const body = { jsonrpc: '2.0', method, params }; if (!notify) body.id = ++n;
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': PV };
+
+function trace(t) {
+  const el = $('#log');
+  el.textContent = new Date().toLocaleTimeString() + '  ' + t + '\n' + el.textContent;
+}
+
+/* ---------- MCP client (Streamable HTTP) ---------- */
+async function post(body) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json, text/event-stream',
+    'MCP-Protocol-Version': PV
+  };
   if (sid) headers['Mcp-Session-Id'] = sid;
-  const r = await fetch('/mcp', { method: 'POST', headers, body: JSON.stringify(body) });
+  return fetch('/mcp', { method: 'POST', headers, body: JSON.stringify(body) });
+}
+
+async function handshake() {
+  sid = null;
+  await rpc('initialize', {
+    protocolVersion: PV, capabilities: {},
+    clientInfo: { name: 'alexa-plus-web', version: '1.0.0' }
+  }, false, true);
+  await rpc('notifications/initialized', {}, true, true);
+}
+
+async function rpc(method, params, notify = false, noRetry = false) {
+  const body = { jsonrpc: '2.0', method, params };
+  if (!notify) body.id = ++n;
+  let r = await post(body);
+  if (r.status === 400 && !noRetry) {          // session lost (e.g. server restarted)
+    trace('session expired, re-initializing');
+    await handshake();
+    r = await post(body);
+  }
   sid = r.headers.get('mcp-session-id') || sid;
-  trace(`POST ${method} -> ${r.status} ${r.headers.get('content-type') || ''}`);
-  if (notify) return;
-  const t = await r.text(); let m;
-  if ((r.headers.get('content-type') || '').includes('event-stream')) {
-    for (const e of t.split('\n\n')) { const d = e.split('\n').find((l) => l.startsWith('data:')); if (d) { const j = JSON.parse(d.slice(5)); if (j.id === body.id) m = j; } }
-  } else m = JSON.parse(t);
-  if (m.error) throw new Error(m.error.message);
-  return m.result;
-}
-const tool = async (name, args) => (await rpc('tools/call', { name, arguments: args })).content[0].text;
-const say = (t, c) => { const d = document.createElement('div'); d.className = 'm ' + c; d.textContent = t; $('#chat').append(d); $('#chat').scrollTop = 1e9; };
-const refresh = async () => { $('#state').textContent = JSON.stringify(JSON.parse(await tool('get_state', {})), null, 1); };
+  const type = r.headers.get('content-type') || '';
+  trace(`POST ${method} -> ${r.status} ${type.split(';')[0]}`);
+  if (notify) return null;
 
-// Fallback when no Bedrock model is configured: tiny rule-based planner calling MCP tools directly
+  const text = await r.text();
+  let msg = null;
+  if (type.includes('event-stream')) {
+    for (const ev of text.split('\n\n')) {
+      const line = ev.split('\n').find((l) => l.startsWith('data:'));
+      if (!line) continue;
+      const j = JSON.parse(line.slice(5));
+      if (j.id === body.id) msg = j;
+    }
+  } else if (text) {
+    msg = JSON.parse(text);
+  }
+  if (!msg) throw new Error('Empty response from server');
+  if (msg.error) throw new Error(msg.error.message);
+  return msg.result;
+}
+
+async function tool(name, args) {
+  const res = await rpc('tools/call', { name, arguments: args });
+  return res.content.map((c) => c.text || '').join('');
+}
+
+/* ---------- UI helpers ---------- */
+function say(text, cls) {
+  const d = document.createElement('div');
+  d.className = 'm ' + (cls || '');
+  d.textContent = text;
+  $('#chat').append(d);
+  $('#chat').scrollTop = 1e9;
+}
+
+async function refresh() {
+  try { state = JSON.parse(await tool('get_state', {})); render(); } catch (e) { trace('state error: ' + e.message); }
+}
+
+function render() {
+  if (!state) return;
+  $('#rooms').innerHTML = '';
+  for (const [name, l] of Object.entries(state.lights)) {
+    const d = document.createElement('div');
+    d.className = 'room';
+    const b = document.createElement('div');
+    b.className = 'bulb';
+    if (l.on) { b.style.background = 'var(--on)'; b.style.opacity = String(0.35 + l.brightness / 160); }
+    const label = document.createElement('div');
+    label.textContent = name;
+    const lv = document.createElement('div');
+    lv.className = 'sub';
+    lv.textContent = l.on ? l.brightness + '%' : 'off';
+    d.append(b, label, lv);
+    $('#rooms').append(d);
+  }
+  $('#temp').textContent = state.temp + ' °C';
+  $('#list').textContent = state.list.length ? state.list.join(', ') : 'empty';
+  $('#now').textContent = state.nowPlaying || 'nothing';
+  const now = Date.now();
+  const active = state.timers.filter((t) => t.endsAt > now);
+  $('#timers').textContent = active.length
+    ? active.map((t) => t.label + ' ' + Math.ceil((t.endsAt - now) / 1000) + 's').join(', ')
+    : 'none';
+}
+setInterval(render, 1000);
+
+/* ---------- Fallback planner (used when the Bedrock agent is not configured) ---------- */
 async function fallback(text) {
-  const out = []; const s = text.toLowerCase(); let m;
-  const room = (s.match(/living|bedroom|kitchen/) || ['living'])[0];
-  if (/light|lamp|dim/.test(s)) { const b = s.match(/(\d+)/); out.push(await tool('set_light', { room, ...(b ? { brightness: +b[1] } : { on: !/\boff\b/.test(s) }) })); }
-  if (/heat|thermostat|temperature/.test(s) && (m = s.match(/(\d+)\s*$|to (\d+)|(\d+)\s*degrees/))) out.push(await tool('set_thermostat', { temp: +(m[1] || m[2] || m[3]) }));
-  if ((m = s.match(/add (.+?) to (my |the )?(shopping )?list/))) out.push(await tool('add_item', { item: m[1] }));
-  if (/(what|read|show).*list/.test(s)) out.push(await tool('list_items', {}));
-  if ((m = s.match(/(\d+)\s*min.*timer|timer.*?(\d+)\s*min/))) out.push(await tool('start_timer', { minutes: +(m[1] || m[2]), label: 'Kitchen' }));
-  if ((m = s.match(/play (.+)/))) out.push(await tool('play_music', { query: m[1] }));
-  return out.length ? out.join('; ') + '.' : 'Try lights, thermostat, list, timer or music.';
+  const s = text.toLowerCase().trim();
+  if (/^(hi|hey|hello|alexa)\b/.test(s)) return 'Hi! I can control lights, the thermostat, your shopping list, timers and music.';
+  if (/help|what can you do|^wht|^what\??$/.test(s)) {
+    return 'Try: "turn on the kitchen light", "dim the bedroom light to 30", "set the heat to 24", "add milk to my list", "start a 5 minute timer", "play lo-fi jazz".';
+  }
+  if (/^music$/.test(s)) return 'What would you like to play? Try "play lo-fi jazz".';
+
+  const parts = s.split(/\band then\b|\bthen\b|,|\band\b(?=\s+(?:turn|set|add|dim|play|start|switch|make))/);
+  const out = [];
+  for (const p of parts) {
+    const part = p.trim();
+    if (!part) continue;
+    let m;
+    const room = (part.match(/living|bedroom|kitchen/) || ['living'])[0];
+
+    if (/light|lamp|dim|bright/.test(part)) {
+      const num = part.match(/(\d+)/);
+      const level = num ? +num[1] : (/dim/.test(part) ? 30 : null);
+      out.push(await tool('set_light', { room, ...(level ? { brightness: level } : { on: !/\boff\b/.test(part) }) }));
+    } else if (/heat|thermostat|temperature|warmer|cooler/.test(part)) {
+      if ((m = part.match(/(\d+)/))) {
+        const t = +m[1];
+        let r = await tool('set_thermostat', { temp: t });
+        if (t < 16 || t > 30) r += ` (you asked for ${t}, but the range is 16-30 C)`;
+        out.push(r);
+      } else out.push('What temperature should I set?');
+    } else if ((m = part.match(/add (.+?) to (?:my |the )?(?:shopping )?list/))) {
+      out.push(await tool('add_item', { item: m[1] }));
+    } else if (/(what|read|show).*list/.test(part)) {
+      out.push(await tool('list_items', {}));
+    } else if ((m = part.match(/(\d+)\s*min\w*.*timer|timer.*?(\d+)\s*min/))) {
+      out.push(await tool('start_timer', { minutes: +(m[1] || m[2]), label: 'Kitchen' }));
+    } else if ((m = part.match(/play (.+)/))) {
+      out.push(await tool('play_music', { query: m[1] }));
+    }
+  }
+  return out.length ? out.join('; ') + '.' : 'Sorry, I didn\u2019t catch that. Say "help" to see what I can do.';
 }
 
-$('#f').onsubmit = async (e) => {
-  e.preventDefault(); const v = $('#q').value.trim(); if (!v) return; $('#q').value = ''; say(v, 'u');
+/* ---------- Send handler ---------- */
+async function ask(text) {
+  say(text, 'u');
+  $('#ring').classList.add('busy');
   try {
-    const r = await fetch('/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: v }) });
-    if (r.ok) { const j = await r.json(); j.trace.forEach((t) => trace(`agent tool ${t.tool} ${JSON.stringify(t.input)}`)); say(j.reply, 'a'); }
-    else say(await fallback(v), 'a');
-  } catch (err) { say('Error: ' + err.message, 'a'); }
+    let reply = null;
+    if (aiAvailable) {
+      try {
+        const r = await fetch('/agent', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: text })
+        });
+        if (r.ok) {
+          const j = await r.json();
+          j.trace.forEach((t) => trace(`agent tool ${t.tool} ${JSON.stringify(t.input)}`));
+          reply = j.reply;
+        } else {
+          aiAvailable = false;
+          setMode(false);
+        }
+      } catch (e) { aiAvailable = false; setMode(false); }
+    }
+    if (reply === null) reply = await fallback(text);
+    say(reply, 'a');
+  } catch (err) {
+    say('Error: ' + err.message, 'a');
+  }
+  $('#ring').classList.remove('busy');
   refresh();
+}
+
+function setMode(ai) {
+  const b = $('#mode');
+  b.textContent = ai ? 'Bedrock agent' : 'Rule-based fallback';
+  b.className = 'badge' + (ai ? ' ai' : '');
+}
+
+$('#f').onsubmit = (e) => {
+  e.preventDefault();
+  const v = $('#q').value.trim();
+  if (!v) return;
+  $('#q').value = '';
+  ask(v);
 };
+
+const examples = [
+  'Turn on the kitchen light',
+  'Dim the bedroom light to 30 and set the heat to 24',
+  'Add oat milk to my list',
+  'What is on my list',
+  'Start a 2 minute pasta timer',
+  'Play lo-fi jazz'
+];
+for (const t of examples) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.textContent = t;
+  b.onclick = () => ask(t);
+  $('#chips').append(b);
+}
+
+/* ---------- Boot ---------- */
 (async () => {
-  await rpc('initialize', { protocolVersion: PV, capabilities: {}, clientInfo: { name: 'alexa-plus-web', version: '1.0.0' } });
-  await rpc('notifications/initialized', {}, true);
-  const t = await rpc('tools/list', {}); say(`Hi, I\u2019m Alexa+. ${t.tools.length} tools discovered over MCP.`, 'a'); refresh();
+  try {
+    await handshake();
+    const t = await rpc('tools/list', {});
+    say(`Hi, I\u2019m Alexa+. ${t.tools.length} tools discovered over MCP. Say "help" to see what I can do.`, 'a');
+    await refresh();
+    // Probe whether the Bedrock agent is configured
+    const probe = await fetch('/agent', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: '' })
+    }).catch(() => ({ ok: false }));
+    aiAvailable = probe.ok;
+    setMode(aiAvailable);
+  } catch (e) {
+    setMode(false);
+    say('Could not reach the MCP server: ' + e.message, 'a');
+  }
 })();
-</script></body></html>
+</script>
+</body>
+</html>
