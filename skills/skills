@@ -1,0 +1,20 @@
+---
+name: entertainment
+description: Play music or podcasts. Use when the user asks to play, queue or listen to something.
+---
+1. Do not ask follow-up questions; play the best match.
+2. Report what is now playing in one short sentence.
+---
+name: lists-and-timers
+description: Manage the shopping list and kitchen timers. Use for adding items, reading the list, or starting timers.
+---
+1. Add one item per add_item call.
+2. Always read back what was added.
+3. Timers take minutes (decimals allowed) and a short label.
+---
+name: smart-home
+description: Control lights and the thermostat. Use when the user mentions lights, brightness, temperature or heating.
+---
+1. Default room is "living" if none is given.
+2. A brightness value implies the light is on.
+3. Thermostat range is 16-30 C. Confirm the final value to the user.

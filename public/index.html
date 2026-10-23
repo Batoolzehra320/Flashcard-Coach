@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Alexa+ MCP</title>
+<style>
+body{font:15px system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;background:#f2f6fa;color:#12202e}
+#chat{height:260px;overflow:auto;background:#fff;border:1px solid #cfd9e4;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.m{padding:6px 10px;border-radius:10px;background:#e9f1f8;max-width:85%}.u{align-self:flex-end;background:#0099d8;color:#fff}
+form{display:flex;gap:6px;margin:8px 0}input{flex:1;padding:9px;border:1px solid #cfd9e4;border-radius:8px}button{padding:9px 14px;border:0;border-radius:8px;background:#0099d8;color:#fff}
+pre{background:#0c1722;color:#aee6ff;padding:10px;border-radius:8px;overflow:auto;max-height:240px;font-size:12px}
+</style></head><body>
+<h1>Alexa+ over MCP</h1>
+<div id="chat"></div>
+<form id="f"><input id="q" aria-label="Message" placeholder="Dim the bedroom light to 30 and set the heat to 24"><button>Send</button></form>
+<h3>Home state</h3><pre id="state"></pre>
+<h3>MCP traffic</h3><pre id="log"></pre>
+<script>
+const PV = '2025-11-25'; let sid, n = 0;
+const $ = (s) => document.querySelector(s);
+const trace = (t) => { $('#log').textContent = t + '\n' + $('#log').textContent; };
+async function rpc(method, params, notify) {
+  const body = { jsonrpc: '2.0', method, params }; if (!notify) body.id = ++n;
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': PV };
+  if (sid) headers['Mcp-Session-Id'] = sid;
+  const r = await fetch('/mcp', { method: 'POST', headers, body: JSON.stringify(body) });
+  sid = r.headers.get('mcp-session-id') || sid;
+  trace(`POST ${method} -> ${r.status} ${r.headers.get('content-type') || ''}`);
+  if (notify) return;
+  const t = await r.text(); let m;
+  if ((r.headers.get('content-type') || '').includes('event-stream')) {
+    for (const e of t.split('\n\n')) { const d = e.split('\n').find((l) => l.startsWith('data:')); if (d) { const j = JSON.parse(d.slice(5)); if (j.id === body.id) m = j; } }
+  } else m = JSON.parse(t);
+  if (m.error) throw new Error(m.error.message);
+  return m.result;
+}
+const tool = async (name, args) => (await rpc('tools/call', { name, arguments: args })).content[0].text;
+const say = (t, c) => { const d = document.createElement('div'); d.className = 'm ' + c; d.textContent = t; $('#chat').append(d); $('#chat').scrollTop = 1e9; };
+const refresh = async () => { $('#state').textContent = JSON.stringify(JSON.parse(await tool('get_state', {})), null, 1); };
+
+// Fallback when no Bedrock model is configured: tiny rule-based planner calling MCP tools directly
+async function fallback(text) {
+  const out = []; const s = text.toLowerCase(); let m;
+  const room = (s.match(/living|bedroom|kitchen/) || ['living'])[0];
+  if (/light|lamp|dim/.test(s)) { const b = s.match(/(\d+)/); out.push(await tool('set_light', { room, ...(b ? { brightness: +b[1] } : { on: !/\boff\b/.test(s) }) })); }
+  if (/heat|thermostat|temperature/.test(s) && (m = s.match(/(\d+)\s*$|to (\d+)|(\d+)\s*degrees/))) out.push(await tool('set_thermostat', { temp: +(m[1] || m[2] || m[3]) }));
+  if ((m = s.match(/add (.+?) to (my |the )?(shopping )?list/))) out.push(await tool('add_item', { item: m[1] }));
+  if (/(what|read|show).*list/.test(s)) out.push(await tool('list_items', {}));
+  if ((m = s.match(/(\d+)\s*min.*timer|timer.*?(\d+)\s*min/))) out.push(await tool('start_timer', { minutes: +(m[1] || m[2]), label: 'Kitchen' }));
+  if ((m = s.match(/play (.+)/))) out.push(await tool('play_music', { query: m[1] }));
+  return out.length ? out.join('; ') + '.' : 'Try lights, thermostat, list, timer or music.';
+}
+
+$('#f').onsubmit = async (e) => {
+  e.preventDefault(); const v = $('#q').value.trim(); if (!v) return; $('#q').value = ''; say(v, 'u');
+  try {
+    const r = await fetch('/agent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: v }) });
+    if (r.ok) { const j = await r.json(); j.trace.forEach((t) => trace(`agent tool ${t.tool} ${JSON.stringify(t.input)}`)); say(j.reply, 'a'); }
+    else say(await fallback(v), 'a');
+  } catch (err) { say('Error: ' + err.message, 'a'); }
+  refresh();
+};
+(async () => {
+  await rpc('initialize', { protocolVersion: PV, capabilities: {}, clientInfo: { name: 'alexa-plus-web', version: '1.0.0' } });
+  await rpc('notifications/initialized', {}, true);
+  const t = await rpc('tools/list', {}); say(`Hi, I\u2019m Alexa+. ${t.tools.length} tools discovered over MCP.`, 'a'); refresh();
+})();
+</script></body></html>
